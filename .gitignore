@@ -26,3 +26,7 @@ uploads/
 
 # Testing cache
 .pytest_cache/
+
+
+# Third-party banking documents
+data/sample_policies/*.pdf
