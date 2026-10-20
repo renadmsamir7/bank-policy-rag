@@ -30,3 +30,6 @@ uploads/
 
 # Third-party banking documents
 data/sample_policies/*.pdf
+
+# Processed banking text
+data/processed_chunks.json
