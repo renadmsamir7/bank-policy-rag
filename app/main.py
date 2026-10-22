@@ -142,9 +142,23 @@ def ask_question(request: QuestionRequest):
         for i, passage in enumerate(passages, start=1)
     ]
 
-    # 7. Return the answer and source information
+
+    # 7. Identify whether the model declined to answer
+    answer = result["response"].strip()
+
+    refusal_message = (
+        "I cannot confirm the answer from the provided documents."
+    )
+
+    if answer.casefold() == refusal_message.casefold():
+        answer_status = "not_confirmed"
+    else:
+        answer_status = "generated"
+
+    # 8. Return the answer, status, and retrieval matches
     return {
         "question": question,
-        "answer": result["response"].strip(),
+        "answer": answer,
+        "answer_status": answer_status,
         "retrieved_sources": retrieved_sources
     }

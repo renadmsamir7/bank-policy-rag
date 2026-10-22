@@ -114,6 +114,9 @@ def test_ask_returns_answer_and_sources():
     # Check the generated answer
     assert data["answer"] == "The deadline is 30 days."
 
+    # Check that a generated answer has the correct status
+    assert data["answer_status"] == "generated"
+
     # Check that source information is included
     assert len(data["retrieved_sources"]) == 1
 
@@ -237,3 +240,51 @@ def test_health_endpoint():
         "service": "Bank Policy RAG API"
     }
 
+
+# ==========================================
+# TEST 8: Verify unsupported answer status
+# ==========================================
+
+def test_unsupported_answer_status():
+
+    # Simulate Qwen declining to answer
+    fake_llm_response = BytesIO(
+        b'{"response": "I cannot confirm the answer from the provided documents."}'
+    )
+
+    # Simulate a retrieved passage that does not answer the question
+    fake_passages = [
+        {
+            "text": "General banking terms and conditions.",
+            "source": "cb-retail-terms-and-conditions-en.pdf",
+            "page": 6,
+            "distance": 0.85
+        }
+    ]
+
+    # Mock retrieval, prompt generation, and Ollama
+    with (
+        patch("main.build_prompt", return_value="Test prompt"),
+        patch("main.urlopen", return_value=fake_llm_response),
+        patch("main.retrieve_passages", return_value=fake_passages)
+    ):
+
+        response = client.post(
+            "/ask",
+            json={
+                "question": "How many days of paid annual leave do bank employees receive?"
+            }
+        )
+
+    # Verify the response
+    assert response.status_code == 200
+
+    data = response.json()
+
+    # Verify that Qwen declined to answer
+    assert data["answer"] == (
+        "I cannot confirm the answer from the provided documents."
+    )
+
+    # Verify the new answer status
+    assert data["answer_status"] == "not_confirmed"
