@@ -218,3 +218,22 @@ def test_retrieval_happens_only_once():
         passages=fake_passages
     )
 
+
+# ==========================================
+# TEST 7: Verify API health check
+# ==========================================
+
+def test_health_endpoint():
+
+    # Send a GET request to the health endpoint
+    response = client.get("/health")
+
+    # Check that the endpoint responds successfully
+    assert response.status_code == 200
+
+    # Check the response content
+    assert response.json() == {
+        "status": "ok",
+        "service": "Bank Policy RAG API"
+    }
+

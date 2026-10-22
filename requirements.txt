@@ -4,6 +4,9 @@ fastapi==0.156.2
 uvicorn==0.54.0
 pydantic==2.14.1
 
+# Environment configuration
+python-dotenv==1.2.4
+
 # Vector database
 chromadb==1.5.9
 
