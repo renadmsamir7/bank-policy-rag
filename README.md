@@ -1,28 +1,26 @@
-
 # Bank Policy Q&A — Local RAG API
 
-An AI-powered banking policy question-answering system built with Python, FastAPI, ChromaDB, Ollama, and Docker.
+A local, document-grounded banking policy question-answering API built with Python, FastAPI, ChromaDB, BM25, Ollama, and Docker.
 
-The application uses Retrieval-Augmented Generation (RAG) to answer questions grounded in banking policy documents. It combines semantic document retrieval with a locally hosted large language model (LLM) and provides references to the original PDF files and page numbers.
+The application uses Retrieval-Augmented Generation (RAG) to answer questions grounded in banking policy documents. It uses hybrid retrieval (semantic similarity + BM25 keyword matching), a locally hosted language model, and source references to answer questions from uploaded banking policy PDFs.
 
-The project demonstrates an end-to-end RAG workflow, including PDF processing, text extraction, vector embeddings, semantic search, answer generation, REST API development, automated testing, and containerization.
+The project demonstrates an end-to-end RAG workflow, including PDF processing, text extraction, vector embeddings, hybrid retrieval and rank fusion, adjacent-chunk context expansion, local answer generation, source citation formatting, REST API development, automated evaluation, and containerization.
 
 ## Features
 
-- PDF text extraction using PyPDF and OCR
-- Two-column document processing using Apple's Vision OCR
-- Text chunking with source metadata
-- Semantic search using ChromaDB
-- Local text embeddings with all-MiniLM-L6-v2
-- Answer generation using Qwen2.5 3B through Ollama
-- Context-aware prompting to ground answers in retrieved passages
-- Handling of questions that cannot be answered from the documents
-- REST API developed with FastAPI
-- Source filenames and page numbers included in API responses
-- Automated API testing using pytest
-- Docker containerization for the API
-- Docker Compose for simplified application setup and execution
-- Local processing without requiring a cloud-based LLM API
+- PDF text extraction with PyPDF and OCR; macOS Apple Vision OCR for two-column PDFs
+- Text chunking with original PDF filename and page metadata
+- Local embeddings using `all-MiniLM-L6-v2` and persistent storage in ChromaDB
+- **Hybrid retrieval:** ChromaDB semantic search + BM25 keyword retrieval, combined with reciprocal rank fusion
+- **Neighboring-chunk expansion:** appends the preceding chunk when a retrieved passage begins mid-sentence (same file and page)
+- Local answer generation with **Qwen2.5 3B** through Ollama
+- Document-grounded prompting and a fixed refusal response for unsupported questions
+- Source-aware answers with short citation expansion to PDF filename and page number
+- Targeted output cleanup for known merged-word errors (not a general grammar checker)
+- FastAPI endpoints for health checks and policy questions; `answer_status` included in responses
+- Unit/API tests, retrieval evaluation, and answer evaluation
+- Docker Compose for a local API connected to host Ollama, persistent ChromaDB, and processed chunks
+- No hosted language-model API required
 
 ## Technology Stack
 
@@ -37,6 +35,8 @@ The project demonstrates an end-to-end RAG workflow, including PDF processing, t
 **AI and Retrieval**
 - Retrieval-Augmented Generation (RAG)
 - ChromaDB
+- BM25 (`rank-bm25`)
+- Reciprocal rank fusion (RRF)
 - all-MiniLM-L6-v2 embeddings
 - Ollama
 - Qwen2.5 3B
@@ -50,55 +50,55 @@ The project demonstrates an end-to-end RAG workflow, including PDF processing, t
 
 **Testing and Containerization**
 - pytest
+- Python evaluation scripts
 - Docker
 - Docker Compose
 
 ## How It Works
 
-The application follows a Retrieval-Augmented Generation pipeline:
-
-1. Banking policy PDFs are loaded and their text is extracted using PDF parsing and OCR when needed.
-2. Extracted content is divided into smaller text chunks.
-3. Each chunk retains metadata identifying its source document and page number.
-4. Chunks are converted into vector embeddings using all-MiniLM-L6-v2.
-5. Embeddings and metadata are stored in a persistent ChromaDB collection.
-6. User questions are converted into embeddings and matched with relevant document passages.
-7. Retrieved passages are incorporated into a structured prompt.
-8. Qwen2.5 3B generates an answer using the retrieved context.
-9. FastAPI returns the generated answer along with the retrieved source references.
+1. PDF files are parsed and, when necessary, processed with OCR. Text is split into chunks with source filename and page metadata.
+2. Chunk embeddings are generated with `all-MiniLM-L6-v2` and indexed in persistent ChromaDB. The processed chunks also serve as input for BM25 keyword retrieval.
+3. For a user question, the API runs semantic and BM25 retrieval and combines their rankings using reciprocal rank fusion (RRF).
+4. The selected passages are formatted with numbered source labels. When a passage appears to start mid-sentence, the context builder can include its preceding chunk from the same PDF page.
+5. Qwen2.5 3B, running locally through Ollama, generates a document-grounded response.
+6. The API corrects a few known word-spacing errors, expands existing short source citations using retrieved metadata, and assigns `answer_status` (`generated` or `not_confirmed`).
+7. FastAPI returns the answer and a structured list of retrieved sources. These are *retrieval matches*, not independently verified evidence for each generated claim.
 
 ### RAG Pipeline
 
 ```text
-Banking Policy PDFs
-        |
-        v
-PDF Parsing / OCR
-        |
-        v
-Text Chunking + Metadata
-        |
-        v
-Embedding Generation
-        |
-        v
-ChromaDB Vector Database
-        |
-        v
-User Question
-        |
-        v
-Semantic Retrieval
-        |
-        v
-Prompt Construction
-        |
-        v
-Ollama + Qwen2.5 3B
-        |
-        v
-FastAPI Response
-(Answer + Retrieved Sources)
+Banking policy PDFs
+         |
+   PDF parsing / OCR
+         |
+  Chunking + metadata
+         |
+         +----------------------+
+         |                      |
+  Embedding + ChromaDB    Processed chunks
+   (semantic index)         (BM25 corpus)
+         |                      |
+         +----------+-----------+
+                    |
+                User question
+                    |
+        Semantic + BM25 retrieval
+                    |
+          Reciprocal rank fusion
+                    |
+           Selected passages
+                    |
+        Adjacent-chunk expansion
+                    |
+             Prompt builder
+                    |
+           Ollama / Qwen2.5
+                    |
+        Formatting + citations
+                    |
+             FastAPI JSON
+ (question, answer, answer_status,
+           retrieved_sources)
 ```
 
 ## Local Setup
@@ -185,15 +185,13 @@ Run:
 python app/pdf_loader.py
 ```
 
-The document-processing pipeline generates:
+PDF parsing and OCR are separate processing steps. For documents requiring OCR, run the project's macOS OCR workflow, then complete text chunking to produce:
 
 ```text
 data/processed_chunks.json
 ```
 
-For PDFs requiring OCR, use the project's macOS OCR processing workflow to extract the document text before indexing.
-
-Each processed chunk includes text and source metadata.
+**Check that this file exists before indexing.** The available scripts are not a guaranteed one-command import pipeline for every PDF. Each chunk contains `text`, `file_name`, and `page`.
 
 ### 7. Build the Vector Database
 
@@ -242,6 +240,7 @@ Before starting the application with Docker Compose, ensure that:
 - The Qwen2.5 3B model has been downloaded.
 - Banking documents have already been processed.
 - The ChromaDB vector database has already been created.
+- `data/processed_chunks.json` exists (used to expand neighboring context and run BM25 retrieval).
 
 **Important:** The current Docker configuration runs the RAG API only. PDF extraction, OCR processing, and initial database indexing must be performed separately using the local setup workflow.
 
@@ -258,6 +257,7 @@ This command:
 - Builds the FastAPI Docker image.
 - Creates and starts the API container.
 - Mounts the existing local ChromaDB database.
+- Mounts `data/processed_chunks.json` read-only for keyword search and neighboring-chunk lookup.
 - Configures communication with Ollama on the host machine.
 - Preserves the embedding-model cache using a Docker volume.
 - Exposes the API on port 8001.
@@ -316,6 +316,8 @@ docker compose down
 ```
 
 This stops and removes the Compose container and network without deleting the local ChromaDB database or the persistent model-cache volume.
+
+**Note:** Both `chroma_db/` and `data/processed_chunks.json` are local inputs. They must exist before starting the API container; neither is provided in this repository.
 
 ### Docker Configuration Files
 
@@ -390,12 +392,13 @@ Accepts a banking policy question and returns an AI-generated answer with retrie
 }
 ```
 
-**Example response:**
+**Example response (illustrative, based on a tested question):**
 
 ```json
 {
   "question": "What is the deadline for disputing a card transaction?",
-  "answer": "The deadline for disputing a card transaction is within thirty days from the sending date of the Statement of Account on which the disputed Transaction appeared. This information is sourced from [Source 1], File: cb-retail-terms-and-conditions-en.pdf, Page: 8.",
+  "answer": "The deadline for disputing a card transaction is within thirty days from the sending date of the Statement of Account on which the disputed Transaction appeared. [Source 1] (cb-retail-terms-and-conditions-en.pdf, page 8)",
+  "answer_status": "generated",
   "retrieved_sources": [
     {
       "rank": 1,
@@ -416,15 +419,9 @@ Accepts a banking policy question and returns an AI-generated answer with retrie
 }
 ```
 
-The response includes:
+`answer_status` is `generated` for a non-refusal response or `not_confirmed` when the answer is the exact configured refusal message. **`generated` does not mean the answer has been independently fact-checked.**
 
-- The original question
-- The generated answer
-- Retrieved document filenames
-- Page numbers
-- Retrieval rankings
-
-**Note:** Retrieved sources represent semantic search matches. They are not necessarily all used to support the generated answer.
+Retrieved sources are ranked search matches. Only cited passages should be interpreted as the model's claimed support, and citations themselves are not independently validated. The citation formatter expands references such as `[Source 1]` to the corresponding filename and page; it does not generate citations when the model omits them.
 
 ### Handling Unsupported Questions
 
@@ -446,73 +443,85 @@ I cannot confirm the answer from the provided documents.
 
 This behavior helps reduce unsupported answers, although it does not eliminate the possibility of incorrect model outputs.
 
-## Running Tests
+## Running Tests and Evaluations
 
-The project includes automated API tests using pytest.
+### Automated tests
 
-Run:
+Run the API and formatting regression tests locally:
 
 ```bash
-PYTHONPATH=app python -m pytest tests/test_api.py -v
+PYTHONPATH=app:tests python -m pytest tests/test_api.py tests/test_answer_formatting.py -v
 ```
 
-The tests cover:
+The API tests use mocking for external services where appropriate. Formatting tests verify known merged-word detection independently of live model responses.
 
-- Valid API requests and response formatting
-- Input validation
-- Health endpoint behavior
-- Root endpoint behavior
-- Simulated Ollama connection failures
-- Retrieval execution and efficiency
+### Retrieval evaluation
 
-Tests use mocking where appropriate to avoid depending on live model responses.
+```bash
+PYTHONPATH=app python tests/evaluate_retrieval.py
+```
+
+The evaluation checks whether selected questions retrieve the expected source filename/page and supporting excerpt. **The current handpicked five-case set previously achieved HitRate@3 = 5/5 (100%) with hybrid retrieval.** This is a small development set, not a general retrieval-quality guarantee.
+
+### Answer evaluation
+
+First start Ollama and the Docker API, then run:
+
+```bash
+PYTHONPATH=app python tests/evaluate_answers.py
+```
+
+The evaluation compares expected answer terms, expected retrieved source and citation, the API `answer_status`, and a few known formatting errors. **The latest three-case evaluation passed 3/3 (100%)**; this small result should not be interpreted as overall banking-policy accuracy. A passing citation check confirms that the expected source was *referenced*, not that every generated statement is fully supported.
 
 ## Project Structure
 
-Key files and directories include:
-
 ```text
 bank-policy-rag/
-|
-|-- app/
-|   |-- main.py
-|   |-- pdf_loader.py
-|   |-- index_chunks.py
-|   |-- prompt_builder.py
-|   |-- context_builder.py
-|   `-- ...
-|
-|-- data/
-|   |-- sample_policies/
-|   `-- processed_chunks.json
-|
-|-- chroma_db/
-|
-|-- tests/
-|   `-- test_api.py
-|
-|-- .dockerignore
-|-- .env.example
-|-- .gitignore
-|-- Dockerfile
-|-- compose.yaml
-|-- requirements.txt
-|-- requirements-api.txt
-`-- README.md
+├── app/
+│   ├── main.py                  # FastAPI + answer post-processing
+│   ├── hybrid_retriever.py      # Combine semantic and BM25 results
+│   ├── retriever.py             # ChromaDB semantic search
+│   ├── keyword_retriever.py     # BM25 keyword search
+│   ├── context_builder.py      # Source labels + neighboring chunks
+│   ├── prompt_builder.py        # Grounded LLM instructions
+│   ├── answer_formatter.py      # Known spacing corrections
+│   ├── pdf_loader.py            # PDF extraction
+│   └── index_chunks.py         # Vector indexing
+├── data/
+│   ├── sample_policies/         # Local PDFs (not committed)
+│   └── processed_chunks.json   # Local generated chunks (not committed)
+├── chroma_db/                  # Local vector DB (not committed)
+├── tests/
+│   ├── test_api.py
+│   ├── test_answer_formatting.py
+│   ├── evaluate_retrieval.py
+│   ├── evaluate_answers.py
+│   ├── rag_eval_cases.json
+│   └── answer_eval_cases.json
+├── Dockerfile
+├── compose.yaml
+├── requirements.txt
+├── requirements-api.txt
+├── .dockerignore
+├── .env.example
+├── .gitignore
+└── README.md
 ```
 
-The `data/` and `chroma_db/` contents are generated or prepared locally and are not distributed with the repository.
+Some generated or local-only directories and files will not appear in a fresh clone.
 
 ## Limitations
 
 - Answer quality depends on the relevance and accuracy of the source documents.
 - OCR may introduce text recognition errors.
-- Semantic retrieval may return passages that are not relevant to the final answer.
-- The language model may occasionally generate inaccurate statements or citations.
+- Even hybrid retrieval can return unrelated or incomplete passages; neighboring-chunk expansion uses a heuristic and does not fix every split.
+- The current evaluation suites contain only a small number of handpicked questions.
+- The language model may occasionally generate inaccurate statements, omit citations, or cite an irrelevant source.
+- Targeted formatting corrections cover only a few observed merged words, not arbitrary language errors.
 - The current implementation does not independently verify that generated claims are fully supported by their cited sources.
 - Banking policy updates are not detected automatically.
 - PDF processing currently relies on macOS-specific OCR functionality for certain documents.
-- The vector database must be generated before running the Dockerized API.
+- Both the vector database and processed chunk JSON must be generated before running the Dockerized API.
 - Ollama must be available separately on the host machine.
 - The API is designed for local development and demonstration rather than unrestricted public deployment.
 
@@ -533,34 +542,30 @@ Users should review document permissions and data-handling requirements before p
 
 ## Project Status
 
-**Functional RAG API with Docker Compose support.**
+**Functional, local-first RAG API with Docker Compose support.**
 
-Completed functionality includes:
+Implemented and exercised:
 
-- Banking PDF text extraction and OCR processing
-- Document chunking with source metadata
-- Embedding generation and ChromaDB indexing
-- Semantic document retrieval
-- Context-aware prompt generation
-- Local Qwen2.5 answer generation through Ollama
-- Retrieval source references in API responses
-- Handling of unsupported questions
-- REST API implementation with FastAPI
-- Automated API testing
-- Docker image configuration
-- Docker Compose setup and local API verification
+- PDF extraction and OCR-assisted processing with filename/page metadata
+- MiniLM embeddings and ChromaDB indexing
+- Semantic + BM25 hybrid retrieval with reciprocal rank fusion
+- Limited neighboring-chunk expansion to preserve split policy requirements
+- Document-grounded Qwen2.5 answer generation via Ollama
+- FastAPI endpoints, `answer_status`, and retrieved-source metadata
+- Citation expansion and targeted answer formatting
+- API/formatting tests and small retrieval/answer evaluation sets
+- Docker Compose setup with persistent vector storage and read-only processed chunks
 
-The full RAG pipeline has been tested successfully both locally and through Docker Compose.
+**Latest recorded checks:** 3/3 answer evaluation cases passed, including answer formatting and citations; five selected retrieval cases achieved HitRate@3 = 5/5 with hybrid retrieval. These are small development checks, not claims of production readiness.
 
 ### Potential Future Improvements
 
-- Automated evaluation of retrieval and answer quality
-- Improved relevance filtering and source attribution
-- Stronger verification of generated answers against source passages
-- Additional integration tests
-- API authentication and security enhancements
-- Support for more document formats
-- Production deployment configuration
+- Expand evaluation with varied, adversarial, and ambiguous questions
+- Test citation faithfulness and factual support at the claim level
+- Improve OCR quality, chunk boundaries, and handling of conflicting policy rules
+- Add broader integration tests and continuous integration (CI)
+- Add authentication, rate limits, logging, and security controls before deployment
+- Support more document formats, corpus updates, and production-oriented deployment
 
 ## Disclaimer
 
