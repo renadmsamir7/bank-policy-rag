@@ -1,0 +1,52 @@
+[
+    {
+        "id": "card_dispute_deadline",
+        "question": "What is the deadline for disputing a card transaction?",
+        "expected_source": "cb-retail-terms-and-conditions-en.pdf",
+        "expected_page": 8,
+        "expected_phrases": [
+            "within thirty",
+            "sending date"
+        ]
+    },
+    {
+        "id": "debit_card_replacement",
+        "question": "According to the bank tariff of charges, what is the fee for replacing a debit card?",
+        "expected_source": "cbq-personal-banking-tarrif-of-charges-en.pdf",
+        "expected_page": 11,
+        "expected_phrases": [
+            "replacing a lost",
+            "qar 50.00"
+        ]
+    },
+    {
+        "id": "himyan_card_issuance",
+        "question": "How much does the bank charge for issuing a Himyan debit card?",
+        "expected_source": "cbq-personal-banking-tarrif-of-charges-en.pdf",
+        "expected_page": 11,
+        "expected_phrases": [
+            "issuing himyan debit card",
+            "free of charge"
+        ]
+    },
+{
+    "id": "lost_chequebook_charge",
+    "question": "What is the charge for a lost chequebook?",
+    "expected_source": "cbq-personal-banking-tarrif-of-charges-en.pdf",
+    "expected_page": 2,
+    "expected_phrases": [
+        "charge per chequebook lost",
+        "qar 100.00"
+    ]
+},
+{
+    "id": "safe_deposit_lost_key",
+    "question": "How much does the bank charge for replacing a lost safe deposit locker key?",
+    "expected_source": "cbq-personal-banking-tarrif-of-charges-en.pdf",
+    "expected_page": 8,
+    "expected_phrases": [
+        "lost key/lock change fee",
+        "qar 500.00"
+    ]
+}
+]
