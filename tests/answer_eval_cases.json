@@ -1,0 +1,30 @@
+[
+    {
+        "id": "card_dispute_deadline",
+        "question": "What is the deadline for disputing a card transaction?",
+        "answer_type": "supported",
+        "expected_terms": [
+            "thirty days",
+            "sending date"
+        ],
+        "expected_source": "cb-retail-terms-and-conditions-en.pdf",
+        "expected_page": 8
+    },
+    {
+        "id": "debit_card_replacement",
+        "question": "According to the bank tariff of charges, what is the fee for replacing a debit card?",
+        "answer_type": "supported",
+        "expected_terms": [
+            "qar 50",
+            "replacing"
+        ],
+        "expected_source": "cbq-personal-banking-tarrif-of-charges-en.pdf",
+        "expected_page": 11
+    },
+    {
+        "id": "employee_annual_leave",
+        "question": "How many days of paid annual leave do bank employees receive?",
+        "answer_type": "unsupported",
+        "expected_response": "I cannot confirm the answer from the provided documents."
+    }
+]
