@@ -11,8 +11,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from prompt_builder import build_prompt
-from retriever import retrieve_passages
-
+from hybrid_retriever import hybrid_search as retrieve_passages
 
 # ==========================================
 # STEP 1: Load environment configuration
