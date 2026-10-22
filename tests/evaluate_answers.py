@@ -47,7 +47,7 @@ def ask_api(question):
 
 
 def evaluate_answers():
-    """Evaluate answer content and retrieved source metadata."""
+    """Evaluate answer content, retrieved sources, and answer status."""
 
     total = len(test_cases)
     passed = 0
@@ -65,47 +65,102 @@ def evaluate_answers():
             print("API error:", error)
             continue
 
+        # Extract information from the API response.
         answer = result.get("answer", "")
         sources = result.get("retrieved_sources", [])
+        status = result.get("answer_status")
 
         print("ANSWER:", answer)
+        print("ANSWER STATUS:", status)
+
+        # ==========================================
+        # Evaluate supported questions
+        # ==========================================
 
         if case["answer_type"] == "supported":
 
-            # Verify expected information appears in the answer.
+            # Check that the answer includes expected information.
             correct_content = all(
                 term_matches(term, answer)
                 for term in case["expected_terms"]
             )
 
-            # Verify the expected document and page were retrieved.
+            # Check that the expected document and page were retrieved.
             correct_source = any(
                 source.get("file_name") == case["expected_source"]
                 and source.get("page") == case["expected_page"]
                 for source in sources
             )
 
+            # Supported answers should have a generated status.
+            expected_status = "generated"
+
             success = correct_content and correct_source
 
             print("Correct answer content:", correct_content)
             print("Expected source retrieved:", correct_source)
 
+        # ==========================================
+        # Evaluate unsupported questions
+        # ==========================================
+
         elif case["answer_type"] == "unsupported":
 
-            expected = case["expected_response"].strip().lower()
-            success = expected in answer.strip().lower()
+            # Check that the model declined to provide an unsupported answer.
+            expected_response = (
+                case["expected_response"].strip().lower()
+            )
 
-            print("Correct refusal:", success)
+            correct_refusal = (
+                expected_response in answer.strip().lower()
+            )
+
+            # Unsupported answers should have a not_confirmed status.
+            expected_status = "not_confirmed"
+
+            success = correct_refusal
+
+            print("Correct refusal:", correct_refusal)
+
+        # ==========================================
+        # Handle unknown evaluation types
+        # ==========================================
 
         else:
+            expected_status = None
             success = False
+
             print("Unknown evaluation case type.")
+
+        # ==========================================
+        # Verify answer status
+        # ==========================================
+
+        status_correct = (
+            expected_status is not None
+            and status == expected_status
+        )
+
+        print("Expected answer status:", expected_status)
+        print("Correct answer status:", status_correct)
+
+        # The test passes only if the original checks
+        # and the answer status check both pass.
+        success = success and status_correct
+
+        # ==========================================
+        # Record the test result
+        # ==========================================
 
         if success:
             passed += 1
             print("RESULT: PASS")
         else:
             print("RESULT: FAIL")
+
+    # ==========================================
+    # Calculate overall pass rate
+    # ==========================================
 
     pass_rate = passed / total if total else 0
 
