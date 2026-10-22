@@ -1,0 +1,22 @@
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: bank-policy-rag-api:local
+
+    ports:
+      - "127.0.0.1:8001:8000"
+
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - chroma_model_cache:/root/.cache/chroma
+
+    environment:
+      OLLAMA_MODEL: qwen2.5:3b
+      OLLAMA_API_URL: http://host.docker.internal:11434/api/generate
+
+volumes:
+  chroma_model_cache:
