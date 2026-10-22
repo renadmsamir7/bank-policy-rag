@@ -2,13 +2,14 @@
 from retriever import retrieve_passages
 
 
-def build_context(question, n_results=3):
+def build_context(question, n_results=3, passages=None):
 
-    # Find relevant banking passages
-    passages = retrieve_passages(
-        question,
-        n_results=n_results
-    )
+    # Retrieve passages only if none were provided
+    if passages is None:
+        passages = retrieve_passages(
+            question,
+            n_results=n_results
+        )
 
     context_parts = []
 
@@ -24,7 +25,7 @@ def build_context(question, n_results=3):
 
         context_parts.append(section)
 
-    # Join all passages into one context
+    # Combine passages into one context
     context = "\n\n".join(context_parts)
 
     return context

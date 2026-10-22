@@ -2,10 +2,10 @@
 from context_builder import build_context
 
 
-def build_prompt(question):
+def build_prompt(question , passage = None):
 
     # Step 1: Retrieve relevant banking information
-    context = build_context(question, n_results=3)
+    context = build_context(question, n_results=3,passages=passage)
 
     # Step 2: Prepare instructions for the LLM
     prompt = f"""

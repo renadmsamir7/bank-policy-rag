@@ -56,8 +56,11 @@ def ask_question(request: QuestionRequest):
             detail="Question cannot be empty"
         )
 
-    # 2. Retrieve banking information and build the prompt
-    prompt = build_prompt(question)
+    # 2. Retrieve banking passages only once
+    passages = retrieve_passages(question, n_results=3)
+
+    # Build the prompt using the retrieved passages
+    prompt = build_prompt(question, passages=passages)
 
     # 3. Prepare the request for Qwen
     data = {
@@ -86,10 +89,8 @@ def ask_question(request: QuestionRequest):
             detail="Ollama is unavailable. Check that it is running."
         )
 
-    # 5. Retrieve source information
-    passages = retrieve_passages(question, n_results=3)
 
-    # 6. Format retrieved sources as structured data
+    # 5. Format retrieved sources as structured data
     retrieved_sources = [
         {
             "rank": i,
@@ -99,7 +100,7 @@ def ask_question(request: QuestionRequest):
         for i, passage in enumerate(passages, start=1)
     ]
 
-    # 7. Return the answer and source information
+    # 6. Return the answer and source information
     return {
         "question": question,
         "answer": result["response"].strip(),

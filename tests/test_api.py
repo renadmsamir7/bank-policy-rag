@@ -1,0 +1,220 @@
+
+from io import BytesIO
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+from main import app
+
+from urllib.error import URLError
+
+# ==========================================
+# STEP 1: Create our FastAPI test client
+# ==========================================
+
+client = TestClient(app)
+
+
+# ==========================================
+# TEST 1: Reject empty questions
+# ==========================================
+
+def test_empty_question():
+
+    response = client.post(
+        "/ask",
+        json={"question": ""}
+    )
+
+    assert response.status_code == 400
+
+    assert response.json() == {
+        "detail": "Question cannot be empty"
+    }
+
+
+# ==========================================
+# TEST 2: Verify the home endpoint
+# ==========================================
+
+def test_home_endpoint():
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+
+    assert response.json() == {
+        "message": "Bank Policy RAG API is running"
+    }
+
+
+# ==========================================
+# TEST 3: Reject whitespace-only questions
+# ==========================================
+
+def test_whitespace_question():
+
+    response = client.post(
+        "/ask",
+        json={"question": "     "}
+    )
+
+    assert response.status_code == 400
+
+    assert response.json() == {
+        "detail": "Question cannot be empty"
+    }
+
+
+# ==========================================
+# TEST 4: Verify AI answer and source metadata
+# ==========================================
+
+def test_ask_returns_answer_and_sources():
+
+    # Simulate Qwen's response
+    fake_llm_response = BytesIO(
+        b'{"response": "The deadline is 30 days."}'
+    )
+
+    # Simulate a retrieved banking passage
+    fake_passages = [
+        {
+            "text": "Disputes must be submitted within thirty days.",
+            "source": "cb-retail-terms-and-conditions-en.pdf",
+            "page": 8,
+            "distance": 0.78
+        }
+    ]
+
+    # Mock the real prompt, LLM call, and retrieval
+    with (
+        patch("main.build_prompt", return_value="Test prompt"),
+        patch("main.urlopen", return_value=fake_llm_response),
+        patch("main.retrieve_passages", return_value=fake_passages)
+    ):
+
+        response = client.post(
+            "/ask",
+            json={
+                "question": "What is the card dispute deadline?"
+            }
+        )
+
+    # Check HTTP response status
+    assert response.status_code == 200
+
+    # Read the JSON response
+    data = response.json()
+
+    # Check the question
+    assert data["question"] == (
+        "What is the card dispute deadline?"
+    )
+
+    # Check the generated answer
+    assert data["answer"] == "The deadline is 30 days."
+
+    # Check that source information is included
+    assert len(data["retrieved_sources"]) == 1
+
+    source = data["retrieved_sources"][0]
+
+    assert source["rank"] == 1
+    assert source["page"] == 8
+    assert source["file_name"] == (
+        "cb-retail-terms-and-conditions-en.pdf"
+    )
+
+
+# ==========================================
+# TEST 5: Handle Ollama connection failures
+# ==========================================
+
+def test_ollama_unavailable():
+
+    # Simulate Ollama being offline
+    with (
+        patch("main.build_prompt", return_value="Test prompt"),
+        patch(
+            "main.urlopen",
+            side_effect=URLError("Connection refused")
+        )
+    ):
+
+        response = client.post(
+            "/ask",
+            json={
+                "question": "What are the bank account fees?"
+            }
+        )
+
+    # Check that the API returns Service Unavailable
+    assert response.status_code == 503
+
+    # Check the error message
+    assert response.json() == {
+        "detail": "Ollama is unavailable. Check that it is running."
+    }
+
+
+# ==========================================
+# TEST 6: Ensure retrieval happens only once
+# ==========================================
+
+def test_retrieval_happens_only_once():
+
+    question = "What is the card dispute deadline?"
+
+    # Simulate a retrieved banking passage
+    fake_passages = [
+        {
+            "text": "Disputes must be submitted within thirty days.",
+            "source": "cb-retail-terms-and-conditions-en.pdf",
+            "page": 8,
+            "distance": 0.78
+        }
+    ]
+
+    # Simulate Qwen's answer
+    fake_llm_response = BytesIO(
+        b'{"response": "The deadline is 30 days."}'
+    )
+
+    # Mock retrieval, prompt building, and Ollama
+    with (
+        patch(
+            "main.retrieve_passages",
+            return_value=fake_passages
+        ) as mock_retrieve,
+
+        patch(
+            "main.build_prompt",
+            return_value="Test prompt"
+        ) as mock_build_prompt,
+
+        patch(
+            "main.urlopen",
+            return_value=fake_llm_response
+        )
+    ):
+
+        response = client.post(
+            "/ask",
+            json={"question": question}
+        )
+
+    # Verify the request succeeded
+    assert response.status_code == 200
+
+    # Verify retrieval happened exactly once
+    mock_retrieve.assert_called_once_with(
+        question,
+        n_results=3
+    )
+
+    # Verify the prompt reused the same passages
+    mock_build_prompt.assert_called_once_with(
+        question,
+        passages=fake_passages
+    )
+
