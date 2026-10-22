@@ -13,6 +13,7 @@ services:
     volumes:
       - ./chroma_db:/app/chroma_db
       - chroma_model_cache:/root/.cache/chroma
+      - ./data/processed_chunks.json:/app/data/processed_chunks.json:ro
 
     environment:
       OLLAMA_MODEL: qwen2.5:3b

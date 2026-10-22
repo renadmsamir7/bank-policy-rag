@@ -1,5 +1,6 @@
 
 import json
+import re
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -12,6 +13,10 @@ EVAL_FILE = Path(__file__).with_name("answer_eval_cases.json")
 with open(EVAL_FILE, "r", encoding="utf-8") as file:
     test_cases = json.load(file)
 
+
+# ==========================================
+# STEP 1: Check expected answer terms
+# ==========================================
 
 def term_matches(term, answer):
     """Check an expected term, allowing a few equivalent wordings."""
@@ -27,6 +32,10 @@ def term_matches(term, answer):
 
     return term in answer
 
+
+# ==========================================
+# STEP 2: Send a question to our API
+# ==========================================
 
 def ask_api(question):
     """Send a question to the FastAPI RAG application."""
@@ -46,8 +55,104 @@ def ask_api(question):
         return json.load(response)
 
 
+# ==========================================
+# STEP 3: Verify source citations
+# ==========================================
+
+def check_source_citation(answer, sources, expected_source, expected_page):
+    """
+    Verify that the answer cites the expected retrieved source.
+
+    Accept either:
+    1. A matching source number, such as [Source 2].
+    2. The expected PDF filename together with its page number.
+    """
+
+    normalized_answer = answer.casefold()
+
+    for source in sources:
+
+        # Identify the expected retrieved source.
+        if (
+            source.get("file_name") != expected_source
+            or source.get("page") != expected_page
+        ):
+            continue
+
+        # Check for a source number such as "Source 2".
+        rank = source.get("rank")
+
+        source_number_cited = (
+            rank is not None
+            and re.search(
+                rf"\bsource\s*{re.escape(str(rank))}\b",
+                normalized_answer
+            ) is not None
+        )
+
+        # Check for the actual filename and page number.
+        filename_cited = (
+            expected_source.casefold() in normalized_answer
+        )
+
+        page_cited = re.search(
+            rf"\bpage\s*:?\s*{re.escape(str(expected_page))}\b",
+            normalized_answer
+        ) is not None
+
+        if source_number_cited or (filename_cited and page_cited):
+            return True
+
+    return False
+
+
+# ==========================================
+# STEP 4: Check answer formatting
+# ==========================================
+
+def check_answer_formatting(answer):
+    """
+    Detect known merged-word errors in generated answers.
+
+    Examples:
+    - whichthe
+    - withinthirty
+    - Thisfee
+
+    This is a targeted formatting check,
+    not a complete grammar checker.
+    """
+
+    merged_words = (
+        "whichthe",
+        "withinthirty",
+        "thisfee"
+    )
+
+    normalized_answer = answer.casefold()
+
+    formatting_errors = [
+        word
+        for word in merged_words
+        if word in normalized_answer
+    ]
+
+    return len(formatting_errors) == 0
+
+
+# ==========================================
+# STEP 5: Evaluate generated answers
+# ==========================================
+
 def evaluate_answers():
-    """Evaluate answer content, retrieved sources, and answer status."""
+    """
+    Evaluate:
+    1. Answer correctness
+    2. Source retrieval
+    3. Source citations
+    4. Answer formatting
+    5. Answer status
+    """
 
     total = len(test_cases)
     passed = 0
@@ -65,7 +170,10 @@ def evaluate_answers():
             print("API error:", error)
             continue
 
-        # Extract information from the API response.
+        # ==========================================
+        # Extract the API response
+        # ==========================================
+
         answer = result.get("answer", "")
         sources = result.get("retrieved_sources", [])
         status = result.get("answer_status")
@@ -92,13 +200,32 @@ def evaluate_answers():
                 for source in sources
             )
 
-            # Supported answers should have a generated status.
+            # Check that the answer cites the expected source.
+            correct_citation = check_source_citation(
+                answer=answer,
+                sources=sources,
+                expected_source=case["expected_source"],
+                expected_page=case["expected_page"]
+            )
+
+            # NEW: Check for known merged-word formatting errors.
+            correct_formatting = check_answer_formatting(answer)
+
+            # Supported answers should have generated status.
             expected_status = "generated"
 
-            success = correct_content and correct_source
+            # Every check must pass.
+            success = (
+                correct_content
+                and correct_source
+                and correct_citation
+                and correct_formatting
+            )
 
             print("Correct answer content:", correct_content)
             print("Expected source retrieved:", correct_source)
+            print("Expected source cited in answer:", correct_citation)
+            print("Correct answer formatting:", correct_formatting)
 
         # ==========================================
         # Evaluate unsupported questions
@@ -106,7 +233,7 @@ def evaluate_answers():
 
         elif case["answer_type"] == "unsupported":
 
-            # Check that the model declined to provide an unsupported answer.
+            # Check that the model declined to answer.
             expected_response = (
                 case["expected_response"].strip().lower()
             )
@@ -115,7 +242,7 @@ def evaluate_answers():
                 expected_response in answer.strip().lower()
             )
 
-            # Unsupported answers should have a not_confirmed status.
+            # Unsupported answers should have not_confirmed status.
             expected_status = "not_confirmed"
 
             success = correct_refusal
@@ -144,8 +271,7 @@ def evaluate_answers():
         print("Expected answer status:", expected_status)
         print("Correct answer status:", status_correct)
 
-        # The test passes only if the original checks
-        # and the answer status check both pass.
+        # The test passes only if all relevant checks pass.
         success = success and status_correct
 
         # ==========================================
@@ -159,7 +285,7 @@ def evaluate_answers():
             print("RESULT: FAIL")
 
     # ==========================================
-    # Calculate overall pass rate
+    # STEP 6: Calculate overall pass rate
     # ==========================================
 
     pass_rate = passed / total if total else 0

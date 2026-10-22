@@ -1,6 +1,7 @@
 
 import os
 import json
+import re
 
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -12,18 +13,17 @@ from pydantic import BaseModel
 
 from prompt_builder import build_prompt
 from hybrid_retriever import hybrid_search as retrieve_passages
+from answer_formatter import format_answer_text
+
 
 # ==========================================
 # STEP 1: Load environment configuration
 # ==========================================
 
-# Locate the .env file in our project root
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load environment variables from .env
 load_dotenv(dotenv_path=BASE_DIR / ".env")
 
-# Ollama configuration
 OLLAMA_MODEL = os.getenv(
     "OLLAMA_MODEL",
     "qwen2.5:3b"
@@ -55,7 +55,63 @@ class QuestionRequest(BaseModel):
 
 
 # ==========================================
-# STEP 4: Home endpoint
+# STEP 4: Format source citations
+# ==========================================
+
+def format_source_citations(answer, retrieved_sources):
+    """
+    Expand short source references into complete citations.
+
+    Example:
+    [Source 1]
+
+    Becomes:
+    [Source 1] (filename.pdf, page 8)
+
+    Only sources present in the retrieved results can
+    be expanded.
+
+    Existing full citations are left unchanged.
+    """
+
+    # Create a lookup table using source rank.
+    source_lookup = {
+        str(source["rank"]): source
+        for source in retrieved_sources
+    }
+
+    def replace_citation(match):
+
+        rank = match.group(1)
+
+        source = source_lookup.get(rank)
+
+        # Do not invent metadata for an unknown source.
+        if source is None:
+            return match.group(0)
+
+        file_name = source["file_name"]
+        page = source["page"]
+
+        return (
+            f"[Source {rank}] "
+            f"({file_name}, page {page})"
+        )
+
+    # Expand short references such as [Source 1].
+    # Avoid duplicating existing full citations.
+    formatted_answer = re.sub(
+        r"\[Source\s+(\d+)\](?!\s*\()",
+        replace_citation,
+        answer,
+        flags=re.IGNORECASE
+    )
+
+    return formatted_answer
+
+
+# ==========================================
+# STEP 5: Home endpoint
 # ==========================================
 
 @app.get("/")
@@ -66,7 +122,7 @@ def home():
 
 
 # ==========================================
-# STEP 5: Health check endpoint
+# STEP 6: Health check endpoint
 # ==========================================
 
 @app.get("/health")
@@ -78,13 +134,13 @@ def health_check():
 
 
 # ==========================================
-# STEP 6: Banking question-answering endpoint
+# STEP 7: Banking question-answering endpoint
 # ==========================================
 
 @app.post("/ask")
 def ask_question(request: QuestionRequest):
 
-    # 1. Validate the question
+    # 1. Validate the question.
     question = request.question.strip()
 
     if not question:
@@ -93,19 +149,19 @@ def ask_question(request: QuestionRequest):
             detail="Question cannot be empty"
         )
 
-    # 2. Retrieve banking passages only once
+    # 2. Retrieve relevant banking passages once.
     passages = retrieve_passages(
         question,
         n_results=3
     )
 
-    # 3. Build the prompt using retrieved passages
+    # 3. Build the prompt using the retrieved passages.
     prompt = build_prompt(
         question,
         passages=passages
     )
 
-    # 4. Prepare the request for Qwen
+    # 4. Prepare the request for Qwen.
     data = {
         "model": OLLAMA_MODEL,
         "prompt": prompt,
@@ -121,7 +177,7 @@ def ask_question(request: QuestionRequest):
         headers={"Content-Type": "application/json"}
     )
 
-    # 5. Generate the AI answer
+    # 5. Generate the AI answer.
     try:
         with urlopen(ollama_request, timeout=300) as response:
             result = json.load(response)
@@ -132,7 +188,7 @@ def ask_question(request: QuestionRequest):
             detail="Ollama is unavailable. Check that it is running."
         )
 
-    # 6. Format retrieved sources as structured data
+    # 6. Format retrieved sources as structured data.
     retrieved_sources = [
         {
             "rank": i,
@@ -142,9 +198,25 @@ def ask_question(request: QuestionRequest):
         for i, passage in enumerate(passages, start=1)
     ]
 
+    # ==========================================
+    # STEP 8: Process the generated answer
+    # ==========================================
 
-    # 7. Identify whether the model declined to answer
+    # 7. Extract the model's answer.
     answer = result["response"].strip()
+
+    # 8. NEW: Correct known merged-word errors.
+    answer = format_answer_text(answer)
+
+    # 9. Expand short citations using retrieved metadata.
+    answer = format_source_citations(
+        answer,
+        retrieved_sources
+    )
+
+    # ==========================================
+    # STEP 9: Determine answer status
+    # ==========================================
 
     refusal_message = (
         "I cannot confirm the answer from the provided documents."
@@ -155,7 +227,10 @@ def ask_question(request: QuestionRequest):
     else:
         answer_status = "generated"
 
-    # 8. Return the answer, status, and retrieval matches
+    # ==========================================
+    # STEP 10: Return the API response
+    # ==========================================
+
     return {
         "question": question,
         "answer": answer,
