@@ -7,16 +7,19 @@ The application uses Retrieval-Augmented Generation (RAG) to answer questions gr
 The project demonstrates an end-to-end RAG workflow, including PDF processing, text extraction, vector embeddings, hybrid retrieval and rank fusion, adjacent-chunk context expansion, local answer generation, source citation formatting, REST API development, automated evaluation, and containerization.
 
 
-## Project Demo
 
-Watch a short demonstration of the Bank Policy RAG API answering banking policy questions using locally hosted AI.
+## Project Demo 🎬
 
-The video demonstrates:
-- Answering card transaction dispute questions with PDF citations.
-- Retrieving debit card replacement fees.
-- Handling unsupported questions without inventing answers.
+Watch the Bank Policy RAG API in action!
 
-🎬 [Watch the Bank Policy RAG Demo](demo/Bank_Policy_RAG_Demo.mp4)
+This demonstration showcases:
+- Banking policy question answering with PDF citations.
+- Debit card replacement fee retrieval.
+- Safe handling of unsupported questions.
+
+https://github.com/user-attachments/assets/876cf63b-1d73-4242-8b93-10df678229f5
+
+
 
 ## Features
 
