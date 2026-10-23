@@ -1,11 +1,11 @@
 
 from io import BytesIO
 from unittest.mock import patch
+from urllib.error import URLError
 
 from fastapi.testclient import TestClient
 from main import app
 
-from urllib.error import URLError
 
 # ==========================================
 # STEP 1: Create our FastAPI test client
@@ -71,12 +71,12 @@ def test_whitespace_question():
 
 def test_ask_returns_answer_and_sources():
 
-    # Simulate Qwen's response
+    # Simulate Qwen's response.
     fake_llm_response = BytesIO(
         b'{"response": "The deadline is 30 days."}'
     )
 
-    # Simulate a retrieved banking passage
+    # Simulate a retrieved banking passage.
     fake_passages = [
         {
             "text": "Disputes must be submitted within thirty days.",
@@ -86,7 +86,7 @@ def test_ask_returns_answer_and_sources():
         }
     ]
 
-    # Mock the real prompt, LLM call, and retrieval
+    # Mock prompt building, LLM call, and retrieval.
     with (
         patch("main.build_prompt", return_value="Test prompt"),
         patch("main.urlopen", return_value=fake_llm_response),
@@ -100,30 +100,25 @@ def test_ask_returns_answer_and_sources():
             }
         )
 
-    # Check HTTP response status
     assert response.status_code == 200
 
-    # Read the JSON response
     data = response.json()
 
-    # Check the question
     assert data["question"] == (
         "What is the card dispute deadline?"
     )
 
-    # Check the generated answer
     assert data["answer"] == "The deadline is 30 days."
 
-    # Check that a generated answer has the correct status
     assert data["answer_status"] == "generated"
 
-    # Check that source information is included
     assert len(data["retrieved_sources"]) == 1
 
     source = data["retrieved_sources"][0]
 
     assert source["rank"] == 1
     assert source["page"] == 8
+
     assert source["file_name"] == (
         "cb-retail-terms-and-conditions-en.pdf"
     )
@@ -135,7 +130,7 @@ def test_ask_returns_answer_and_sources():
 
 def test_ollama_unavailable():
 
-    # Simulate Ollama being offline
+    # Simulate Ollama being offline.
     with (
         patch("main.build_prompt", return_value="Test prompt"),
         patch(
@@ -151,10 +146,8 @@ def test_ollama_unavailable():
             }
         )
 
-    # Check that the API returns Service Unavailable
     assert response.status_code == 503
 
-    # Check the error message
     assert response.json() == {
         "detail": "Ollama is unavailable. Check that it is running."
     }
@@ -168,7 +161,6 @@ def test_retrieval_happens_only_once():
 
     question = "What is the card dispute deadline?"
 
-    # Simulate a retrieved banking passage
     fake_passages = [
         {
             "text": "Disputes must be submitted within thirty days.",
@@ -178,12 +170,11 @@ def test_retrieval_happens_only_once():
         }
     ]
 
-    # Simulate Qwen's answer
     fake_llm_response = BytesIO(
         b'{"response": "The deadline is 30 days."}'
     )
 
-    # Mock retrieval, prompt building, and Ollama
+    # Mock retrieval, prompt building, and Ollama.
     with (
         patch(
             "main.retrieve_passages",
@@ -206,16 +197,15 @@ def test_retrieval_happens_only_once():
             json={"question": question}
         )
 
-    # Verify the request succeeded
     assert response.status_code == 200
 
-    # Verify retrieval happened exactly once
+    # Retrieval should happen exactly once.
     mock_retrieve.assert_called_once_with(
         question,
         n_results=3
     )
 
-    # Verify the prompt reused the same passages
+    # Prompt building should reuse the same passages.
     mock_build_prompt.assert_called_once_with(
         question,
         passages=fake_passages
@@ -228,13 +218,10 @@ def test_retrieval_happens_only_once():
 
 def test_health_endpoint():
 
-    # Send a GET request to the health endpoint
     response = client.get("/health")
 
-    # Check that the endpoint responds successfully
     assert response.status_code == 200
 
-    # Check the response content
     assert response.json() == {
         "status": "ok",
         "service": "Bank Policy RAG API"
@@ -247,12 +234,11 @@ def test_health_endpoint():
 
 def test_unsupported_answer_status():
 
-    # Simulate Qwen declining to answer
+    # Simulate Qwen declining to answer.
     fake_llm_response = BytesIO(
         b'{"response": "I cannot confirm the answer from the provided documents."}'
     )
 
-    # Simulate a retrieved passage that does not answer the question
     fake_passages = [
         {
             "text": "General banking terms and conditions.",
@@ -262,7 +248,6 @@ def test_unsupported_answer_status():
         }
     ]
 
-    # Mock retrieval, prompt generation, and Ollama
     with (
         patch("main.build_prompt", return_value="Test prompt"),
         patch("main.urlopen", return_value=fake_llm_response),
@@ -272,19 +257,108 @@ def test_unsupported_answer_status():
         response = client.post(
             "/ask",
             json={
-                "question": "How many days of paid annual leave do bank employees receive?"
+                "question": (
+                    "How many days of paid annual leave "
+                    "do bank employees receive?"
+                )
             }
         )
 
-    # Verify the response
     assert response.status_code == 200
 
     data = response.json()
 
-    # Verify that Qwen declined to answer
     assert data["answer"] == (
         "I cannot confirm the answer from the provided documents."
     )
 
-    # Verify the new answer status
     assert data["answer_status"] == "not_confirmed"
+
+
+# ==========================================
+# TEST 9: Verify answer formatting and citations
+# ==========================================
+
+def test_api_formats_answer_and_citations():
+
+    # Simulate a Qwen answer containing a merged-word
+    # error and an incomplete source citation.
+    fake_llm_response = BytesIO(
+        b'{"response": "The statement on whichthe disputed Transaction appeared. [Source 1]"}'
+    )
+
+    # Simulate the retrieved banking passage.
+    fake_passages = [
+        {
+            "text": (
+                "The disputed Transaction appeared "
+                "on the Statement of Account."
+            ),
+            "source": "cb-retail-terms-and-conditions-en.pdf",
+            "page": 8,
+            "distance": 0.78
+        }
+    ]
+
+    # Mock retrieval, prompt building, and Ollama.
+    with (
+        patch(
+            "main.build_prompt",
+            return_value="Test prompt"
+        ),
+        patch(
+            "main.urlopen",
+            return_value=fake_llm_response
+        ),
+        patch(
+            "main.retrieve_passages",
+            return_value=fake_passages
+        )
+    ):
+
+        response = client.post(
+            "/ask",
+            json={
+                "question": "What is the card dispute deadline?"
+            }
+        )
+
+    # Verify successful API response.
+    assert response.status_code == 200
+
+    data = response.json()
+
+    # Verify the formatting error is corrected.
+    assert "whichthe" not in data["answer"].casefold()
+
+    assert "which the" in data["answer"].casefold()
+
+    # Verify the complete PDF citation is added.
+    expected_citation = (
+        "[Source 1] "
+        "(cb-retail-terms-and-conditions-en.pdf, page 8)"
+    )
+
+    assert expected_citation in data["answer"]
+
+    # Verify the complete expected answer.
+    expected_answer = (
+        "The statement on which the disputed "
+        "Transaction appeared. "
+        "[Source 1] "
+        "(cb-retail-terms-and-conditions-en.pdf, page 8)"
+    )
+
+    assert data["answer"] == expected_answer
+
+    # Verify the answer status is preserved.
+    assert data["answer_status"] == "generated"
+
+    # Verify source metadata has not changed.
+    assert data["retrieved_sources"] == [
+        {
+            "rank": 1,
+            "file_name": "cb-retail-terms-and-conditions-en.pdf",
+            "page": 8
+        }
+    ]
