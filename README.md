@@ -6,6 +6,18 @@ The application uses Retrieval-Augmented Generation (RAG) to answer questions gr
 
 The project demonstrates an end-to-end RAG workflow, including PDF processing, text extraction, vector embeddings, hybrid retrieval and rank fusion, adjacent-chunk context expansion, local answer generation, source citation formatting, REST API development, automated evaluation, and containerization.
 
+
+## Project Demo
+
+Watch a short demonstration of the Bank Policy RAG API answering banking policy questions using locally hosted AI.
+
+The video demonstrates:
+- Answering card transaction dispute questions with PDF citations.
+- Retrieving debit card replacement fees.
+- Handling unsupported questions without inventing answers.
+
+🎬 [Watch the Bank Policy RAG Demo](demo/Bank_Policy_RAG_Demo.mp4)
+
 ## Features
 
 - PDF text extraction with PyPDF and OCR; macOS Apple Vision OCR for two-column PDFs
